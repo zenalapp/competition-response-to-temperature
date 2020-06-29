@@ -1,0 +1,310 @@
+---
+title: "Estimating NDs and RFDs"
+author: "Zena Lapp"
+date: "1/24/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+__Goal:__ Estimate niche differences (NDs) and relative fitness differences (RFDs) for coculture populations of _Eschericia coli_ and _Pseudomonas putida_ growing at different temperatures. 
+
+__Contents:__
+
+1. Methods
+    1. Raw data processing
+    1. Curve fitting
+1. Plots for both monoculture & coculture of:
+    1. ODs 
+    1. Raw _E. coli_ fluorescence
+    1. Raw _P. putida_ fluorescence 
+    1. Post-normalization _E. coli_ fluorescence
+    1. Post-normalization _P. putida_ fluorescence 
+    1. Processed data & fitted data
+1. Plot of ND vs. RFD
+
+```{r}
+# load libraries & functions
+library(ggpmisc)
+source('lib/process_raw_data.R')
+source('lib/comp_coef_fns.R')
+```
+
+## Methods
+
+### Raw data processing
+
+1. __Adjust stationary phase:__ Fluorescence keeps increasing even after the bacteria stop growing. To adjust for this, at each temperature, and for monocultures & cocultures, we:
+    1. Manually decide on a maximum value for fluorescence at stationary phase based on where the OD flattens out (suggesting that the bacteria have stopped growing).
+    1. Identify the time at which the fluorescence reaches the chosen maximum value and make all fluorescence values after that timepoint the chosen maximum value.
+1. __Normalize data:__ The _E. coli_ fluorescence molecule and the _P. putida_ fluorescence molecule have very different frequencies, and the frequencies are different at different temperatures. To adjust for this, we use the monoculture ODs and fluorescences: 
+    1. Find the maximum OD and the maximum fluorescence for the _E. coli_ monoculture and for the _P. putida_ monoculture. These are denoted as $E_{OD_{max}}$, $E_{f_{max}}$, $PP_{OD_{max}}$, and $PP_{f_{max}}$, respectively.
+    1. Normalize all data to 32&deg;C using $E_{OD_{32}}$, $E_{f_{32}}$, and $P_{OD_{32}}$.
+    1. Normalize all _E. coli_ values to: $(E_{f_{32}}/E_{OD_{32}})*(E_{OD_{max}}/E_{f_{max}})$
+    1. Normalize all _P. putida_ values to: $(E_{f_{32}}/E_{OD_{32}})*(P_{OD_{max}}/P_{f_{max}})$
+    1. Divide all normalized values by 10,000 to improve fit. 
+
+### Curve fitting
+
+
+
+
+Model:
+
+$$\dot{E} = r_EE(1-\alpha_{EE}*E-\alpha_{EP}P)$$
+$$\dot{P} = r_PP(1-\alpha_{PP}*P-\alpha_{PE}E)$$
+
+- $E$ is the _E. coli_ population size.
+- $P$ is the _P. putida_ population size.
+- $r_i$ is the monoculture growth rate.
+- $\alpha_{EE}=1/K_E$ and $\alpha_{PP}=1/K_P$ are the intra-specific competition coefficients.
+- $K_i$ is the monoculture carrying capacity.
+- $\alpha_{EP}$ and $\alpha_{PE}$ are the inter-specific competition coefficients.
+
+We estimate the parameters by fitting the model to the data:
+
+1. $r_i$ and $K_i$ are estimated from monoculture data using the the single-species Lotka-Voltera equations (no $\alpha_{EP}P$ and $\alpha_{PE}E$ terms) using a built-in R function (`growthcurver::SummarizeGrowth`). 
+1. $\alpha_{EP}$ and $\alpha_{PE}$ are estimated using the equations above (two-species equation).
+    1. Solve the ode for some initial guess of model parameters (`deSolve::ode` function).
+        1. Starting values of $\alpha_{EP}$ and $\alpha_{PE}$ for model fitting were obtained by using the steady-state estimates:
+        $$\alpha_{EP}=(1-\alpha_{PP}P_{SS})/E_{SS}$$
+        $$\alpha_{PE}=(1-\alpha_{EE}E_{SS})/P_{SS}$$
+            1. $E_{SS}$ and $P_{SS}$ are estimated using the single-species Lotka Voltera model.
+    1. Evaluate an error function between the model results and the data.
+        1. Error function:
+        $$error=((E_{real}-E_{fitted})/E_{real})^2+((P_{real}-P_{fitted})/P_{real})^2$$
+    1. Employ an optimization scheme (`optim` function) to minimize the error function by choosing the set of model parameters that minimizes the error.
+
+## Results
+
+### Raw & normalized data
+
+```{r}
+# read in raw data
+raw_dat = read_raw_data(dir = 'data/raw/')
+# load data about where to truncate (for start of exponential phase) and flatten (start of stationary phase)
+trunc_flatten = read.csv('data/trunc_flatten.csv')
+# flatten stationary
+flattened = flatten_stationary(raw_dat,trunc_flatten)
+# normalize data
+normalized = normalize_fluorescence(flattened)
+# plot raw data
+plot_plots(raw_dat,normalized)
+```
+```{r}
+temps = c('32C','34C','36C','38C','40C')
+for(i in temps){
+  write_csv(x = normalized[[i]], path = paste0('data/normalized/',i,'.csv'))
+}
+```
+
+
+### Fitted data
+
+```{r}
+# fit data
+# initialize dataframe
+temps = c('32C','34C','36C','38C','40C')
+p_names = c('temp','ec_r','pp_r','ec_k','pp_k','a_ii_start','a_ii','a_jj_start','a_jj','a_ij_start','a_ij','a_ji_start','a_ji','nd','rfd','error')
+p = data.frame(matrix(NA, nrow=length(temps),ncol=length(p_names)))
+rownames(p) = temps
+colnames(p) = p_names
+
+#k_vals = sapply(normalized, function(x) x[nrow(x),c('EC1','PP1')])
+
+plots = list()
+
+# for each temperature
+for(temp in temps){
+  
+  #if(temp == '36C') next()
+  
+  # get all data for temperature
+  d = normalized[[temp]] %>% gather(Replicate,Growth,EC1:EC3,PP1:PP3,ECco1:ECco3,PPco1:PPco3)
+
+  # get EC monoculture data
+  ec = filter(d,Replicate %in% c('EC1','EC2','EC3'))
+  # get PP monoculture data
+  pp = filter(d,Replicate %in% c('PP1','PP2','PP3'))
+  # get ECco data
+  ecco = filter(d,Replicate %in% c('ECco1','ECco2','ECco3'))
+  # get PPco coculture data
+  ppco = filter(d,Replicate %in% c('PPco1','PPco2','PPco3'))
+  # get all co-culture data
+  co = filter(d,Replicate %in% c('ECco1','ECco2','ECco3','PPco1','PPco2','PPco3'))
+  
+  dat = co
+
+  # get EC parameters
+  ec_k = est_k(ec$Time,ec$Growth) #ec$Growth[nrow(ec)]
+  ec_r = est_r(ec$Time,ec$Growth)
+  # get PP parameters
+  pp_k = est_k(pp$Time,pp$Growth) #pp$Growth[nrow(pp)]
+  pp_r = est_r(pp$Time,pp$Growth)
+  # get ECco parameters
+  ecco_k = est_k(ecco$Time,ecco$Growth)
+  ecco_n0 = est_n0(ecco$Time,ecco$Growth)
+  # get PPco parameters
+  ppco_k = est_k(ppco$Time,ppco$Growth)
+  ppco_n0 = est_n0(ppco$Time,ppco$Growth)
+  
+  # print(temp)
+  # print('EC')
+  # print(ec_k - est_k(ec$Time,ec$Growth))
+  # print('PP')
+  # print(pp_k - est_k(pp$Time,pp$Growth))
+
+  # # get intra-species competition coefficient (inverse of monoculture carrying capacity)
+  # a_ii_start = 1/ec_k
+  # a_jj_start = 1/pp_k
+  # # get estimate of inter-species competiton coefficient
+  # a_ij_start = (1-a_ii_start*ecco_k)/ppco_k
+  # a_ji_start = (1-a_jj_start*ppco_k)/ecco_k
+  
+  
+  #if(temp %in% c('32C','34C','40C')) 
+  a_ii_start = a_jj_start = a_ij_start = a_ji_start = 0.5
+  
+  
+  if(temp == '32C'){
+    dat = dat[dat$Time > 6,]
+  }
+  if(temp == '34C'){
+    dat = dat[dat$Time > 3.5,]
+  }
+  if(temp == '36C'){
+    dat = dat[dat$Time > 5,]
+  }
+  if(temp == '38C'){
+    dat = dat[dat$Time > 5,]
+  }
+    if(temp == '40C'){
+    dat = dat[dat$Time > 5,]
+  }
+
+  # if(temp == '36C'){
+  #   
+  # }
+  # if(temp == '38C'){
+  #   ec_k = 3.6
+  #   #pp_k = 
+  # }
+  #   
+  # a_ij_start = 0.3
+  # a_ji_start = 0.3
+  
+  print(temp)
+
+  aij_vals = seq(0,1,0.1)
+  aji_vals = seq(0,0.5,0.1)
+
+  # colums are a_ij vals
+  # rows are a_ji vals
+  errors = sapply(aij_vals,function(x){
+    sapply(aji_vals, function(y){
+      #print(c(x,y))
+      a_ij_start = x
+      a_ji_start = y
+        fit <- try(optim(par=c(a_ij_start,a_ji_start,ecco_n0,ppco_n0,a_ii_start,a_jj_start),
+               fn=ofun,control = list(maxit = 1000),
+               lower=c(x,y,0,0,0,0), upper=c(x+10e10,y+10e10,Inf,Inf,Inf,Inf),method='L-BFGS-B'))
+        if(inherits(fit,"try-error")) return(NA)
+        return(fit$value)
+    })
+  })
+  print(errors)
+  
+  get_error = function(a_ij_start,a_ji_start){
+    fit <- try(optim(par=c(a_ij_start,a_ji_start,ecco_n0,ppco_n0,a_ii_start,a_jj_start),
+               fn=ofun,control = list(maxit = 1000),
+               lower=c(a_ij_start,a_ji_start,0,0,0,0), upper=c(a_ij_start+10e10,a_ji_start+10e10,Inf,Inf,Inf,Inf),method='L-BFGS-B'))
+        if(inherits(fit,"try-error")) return(NA)
+        return(fit$value)
+  }
+  
+  params <- expand.grid(aij_vals = seq(0,1,0.1),aji_vals = seq(0,0.5,0.1)) %>% group_by(aij_vals,aji_vals) %>%
+    mutate(error = get_error(aij_vals,aji_vals)) %>% ungroup
+  
+  params %>% ggplot(aes(x=aij_vals,y=aji_vals,z=error)) +
+    stat_contour(aes(color=..level..))
+  
+  next
+    
+  # get fit
+  fit <- optim(par=c(a_ij_start,a_ji_start,ecco_n0,ppco_n0,a_ii_start,a_jj_start),
+               fn=ofun,control = list(maxit = 1000),lower=c(0.1,0.1,0,0,0,0), upper=rep(Inf, 6),method='L-BFGS-B')
+    
+  fitdat <- data.frame(Time=dat$Time,
+                       curve=comp.coeff.curve(fit$par[1],fit$par[2],fit$par[3],fit$par[4],fit$par[5],fit$par[6])[,1:2],
+                       dat=dat$Growth,Replicate=dat$Replicate)
+  
+  plots[[temp]] = ggplot(fitdat,aes(x=Time,y=dat)) +
+    geom_point(aes(col=Replicate))+geom_line(aes(y=curve.E)) +
+    geom_line(aes(y=curve.P)) + ggtitle(temp) + theme_bw() + ylab('Growth (r.f.u.)')
+ #  
+ #  lm_eqn_ec <- function(df){
+ #    m <- lm(dat ~ curve.E, df)
+ #        eq <- substitute(~~italic(r)^2~"="~r2,
+ #         list(r2 = format(summary(m)$r.squared, digits = 2)))
+ #    as.character(as.expression(eq))
+ #  }
+ # 
+ #  lm_eqn_pp <- function(df){
+ #    m <- lm(dat ~ curve.P, df)
+ #        eq <- substitute(~~italic(r)^2~"="~r2,
+ #         list(r2 = format(summary(m)$r.squared, digits = 2)))
+ #    as.character(as.expression(eq))
+ # }
+ # 
+ #  print(ggplot(fitdat[grep('EC',fitdat$Replicate),],aes(x=curve.E,y=dat)) + geom_point(aes(col=Replicate)) +
+ #          geom_smooth(method = "lm") +
+ #          geom_text(x = 0.1, y = 0.1, label = lm_eqn_ec(fitdat[grep('EC',fitdat$Replicate),]), parse = TRUE) +
+ #          ggtitle(paste(temp,'E. coli coculture')) + ylab('Actual growth (r.f.u.)') + xlab('Fitted growth (r.f.u.)') +
+ #          theme_bw())
+ #  print(ggplot(fitdat[grep('PP',fitdat$Replicate),],aes(x=curve.P,y=dat)) + geom_point(aes(col=Replicate)) +
+ #          geom_smooth(method = "lm") +
+ #          geom_text(x = 0.1, y = 0.1, label = lm_eqn_pp(fitdat[grep('PP',fitdat$Replicate),]), parse = TRUE) +
+ #          ggtitle(paste(temp,'P. putida coculture')) +ylab('Actual growth (r.f.u.)') + xlab('Fitted growth (r.f.u.)') +
+ #          theme_bw())
+  
+  # fitted
+  a_ij = fit$par[1]
+  a_ji = fit$par[2]
+  a_ii = fit$par[5]
+  a_jj = fit$par[6]
+  
+  # calculate ND
+  nd = 1 - sqrt((a_ij*a_ji)/(a_ii*a_jj))
+
+  # calculate RFD
+  rfd = sqrt((a_ij*a_ii)/(a_ji*a_jj))
+  
+  # error
+  err = fit$value
+
+  # save all to dataframe
+  p[temp,] = c(temp, ec_r, pp_r, ec_k, pp_k,a_ii_start, a_ii, a_jj_start, a_jj, 
+               a_ij_start, a_ij, a_ji_start, a_ji, nd, rfd, err)
+  
+}
+
+plot_fitted(plots)
+```
+
+
+### NDs & RFDs
+
+```{r}
+p$nd = as.numeric(p$nd)
+p$rfd = as.numeric(p$rfd)
+rownames(p) = seq(1,length(rownames(p)))
+p
+p_sub = p#[c(1,2,4,5),]
+
+# plot ND and RFD 
+ggplot(data=p_sub)+geom_point(mapping=aes(x=nd,y=rfd,col=temp,size=10))+ylab('rfd')+theme_classic() + stat_function(fun = function(x) 1/(1-x)) +  stat_function(fun = function(x) 1-x)
+```
+
+
