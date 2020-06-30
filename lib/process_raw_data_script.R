@@ -6,7 +6,7 @@ source('lib/process_raw_data.R')
 # read in raw data
 raw_dat = read_raw_data(dir = 'data/raw/')
 # load data about where to truncate (for start of exponential phase) and flatten (start of stationary phase)
-trunc_flatten = read.csv('trunc_flatten.csv')
+trunc_flatten = read.csv('data/trunc_flatten.csv')
 # flatten stationary
 flattened = flatten_stationary(raw_dat,trunc_flatten)
 # normalize data

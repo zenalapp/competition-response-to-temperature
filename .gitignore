@@ -2,3 +2,5 @@
 .Rhistory
 old
 data/old
+.snakemake/
+Rplots.pdf

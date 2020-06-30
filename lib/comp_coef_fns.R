@@ -83,13 +83,8 @@ ofun <- function(par) {
 }
 
 # fit function ----
-plot_fitted = function(plots){
-  pgrid <- plot_grid(
-    plots[[1]] + theme(legend.position="none",plot.margin = margin(6, 0, 6, 0)),
-    plots[[2]] + theme(legend.position="none",plot.margin = margin(6, 0, 6, 0)),
-    plots[[3]] + theme(legend.position="none",plot.margin = margin(6, 0, 6, 0)),
-    plots[[4]] + theme(legend.position="none",plot.margin = margin(6, 0, 6, 0)),
-    plots[[5]] + theme(legend.position="none",plot.margin = margin(6, 0, 6, 0)),
+plot_fitted = function(plots,aij,aji){
+  pgrid <- plot_grid(plots,
     align = 'vh'
   )
   # legend
@@ -97,8 +92,10 @@ plot_fitted = function(plots){
     # create some space to the left of the legend
     plots[[1]] + theme(legend.box.margin = margin(0, 0, 0, 0))
   )
-  print(plot_grid(pgrid, legend, 
-                  rel_widths = c(3, .5), nrow=1))
+  p <- plot_grid(pgrid, legend, 
+                  rel_widths = c(3, .5), nrow=1)
+  print(p)
+  ggsave(filename=paste0('results/figures/coculture/fit_coculture_aij_',aij,'_aji_',aji,'.pdf'),plot=p)
 }
 
 #---------------------------------------------
