@@ -12,7 +12,7 @@ rule all:
     expand('results/monoculture_parameters.csv',temp=temps) ,
     expand('results/coculture/fit_coculture_aij_{aij}_aji_{aji}.csv',aij=aij,aji=aji),
     'results/all_results.csv',
-    'results/figures/error.pdf'
+    'results/figures/error/error.pdf'
 
 rule install_github_packages:
   output:

@@ -84,7 +84,7 @@ ofun <- function(par) {
 
 # fit function ----
 plot_fitted = function(plots,aij,aji){
-  pgrid <- plot_grid(plots,
+  pgrid <- plot_grid(plotlist=plots,
     align = 'vh'
   )
   # legend
