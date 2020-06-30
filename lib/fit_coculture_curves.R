@@ -4,6 +4,8 @@ library(tidyverse)
 library(cowplot)
 source('lib/comp_coef_fns.R')
 
+dir.create('results/figures/coculture')
+
 aij = as.numeric(snakemake@wildcards$aij)
 aji = as.numeric(snakemake@wildcards$aji)
 

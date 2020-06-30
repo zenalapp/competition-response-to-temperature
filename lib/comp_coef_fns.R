@@ -46,10 +46,10 @@ comp.coeff.model <- function(t,x,params) {
   a_ii = params["a_ii"]#1/ec_k
   a_jj = params["a_jj"]#1/pp_k 
   #now code the model equations
-  # dEdt <- ec_r*E*(1-a_ii*E/ec_k-a_ij*P/ec_k)
-  # dPdt <- pp_r*P*(1-a_jj*P/pp_k-a_ji*E/pp_k)
-  dEdt <- ec_r*E*(1-(a_ii*E)-(a_ij*P))
-  dPdt <- pp_r*P*(1-(a_jj*P)-(a_ji*E))
+  dEdt <- ec_r*E*(1-a_ii*E/ec_k-a_ij*P/ec_k)
+  dPdt <- pp_r*P*(1-a_jj*P/pp_k-a_ji*E/pp_k)
+  #dEdt <- ec_r*E*(1-(a_ii*E)-(a_ij*P))
+  #dPdt <- pp_r*P*(1-(a_jj*P)-(a_ji*E))
   #combine results into a single vector
   dxdt <- c(dEdt,dPdt)
   #return results as a list!
